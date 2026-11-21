@@ -190,12 +190,12 @@ write_hook "$MISS/.githooks/pre-commit" "$TMP/missing.log" 0
 git -C "$MISS" config core.hooksPath .githooks
 (cd "$MISS" && agent-idempotency install-hooks >/dev/null)
 : > "$TMP/missing.log"
-env -u IDEMPOTENCY_HOOK_MODE PATH="/usr/bin:/bin" "$MISS/.githooks/pre-commit" >/tmp/marain-missing-passive 2>&1 || true
+(cd "$MISS" && env -u IDEMPOTENCY_HOOK_MODE PATH="/usr/bin:/bin" .githooks/pre-commit >/tmp/marain-missing-passive 2>&1 || true)
 grep -q "not on PATH" /tmp/marain-missing-passive
 test "$(grep -c RAN "$TMP/missing.log")" = "1"
 : > "$TMP/missing.log"
 set +e
-env IDEMPOTENCY_HOOK_MODE=active PATH="/usr/bin:/bin" "$MISS/.githooks/pre-commit" >/tmp/marain-missing-active 2>&1
+(cd "$MISS" && env IDEMPOTENCY_HOOK_MODE=active PATH="/usr/bin:/bin" .githooks/pre-commit >/tmp/marain-missing-active 2>&1)
 STATUS=$?
 set -e
 test "$STATUS" = "127"
