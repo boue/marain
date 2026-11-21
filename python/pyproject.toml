@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-idempotency"
+version = "1.0.0"
+description = "Idempotency wrappers for coding-agent API and database calls"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = ["redis>=5", "cryptography>=42"]
+
+[project.scripts]
+agent-idempotency = "agent_idempotency.hook_cmd:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.lua"]

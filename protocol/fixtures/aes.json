@@ -1,0 +1,14 @@
+{
+  "ct": "bNVlJqS2vWWeHbVVJsLL7z3lrI4f5I5ncDlrhHyERzlnmTaztxJV/DN0z0KTLCpa3re8WLcBD53XEZmKwBayBdWeEtkImBV4zrI4Lq7u",
+  "key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "nonce": "IiIiIiIiIiIiIiIi",
+  "nonce_hex": "222222222222222222222222",
+  "plaintext": {
+    "body": {
+      "kind": "value",
+      "value": "\u6771\u4eac"
+    },
+    "outcome": "success"
+  },
+  "token": "abc"
+}

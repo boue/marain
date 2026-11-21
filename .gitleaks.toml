@@ -1,0 +1,6 @@
+[allowlist]
+paths = [
+  '''protocol/fixtures/aes.json''',
+  '''protocol/fixtures/tokens.json''',
+]
+description = "Synthetic conformance fixtures. The bytes are inputs, not credentials."

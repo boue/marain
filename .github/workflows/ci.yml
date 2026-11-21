@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install git, bash, and Redis executables
+        run: sudo apt-get update && sudo apt-get install -y git bash redis-server
+      - name: Build and install the Python wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel python
+          python -m venv /tmp/marain-venv
+          /tmp/marain-venv/bin/pip install python/dist/*.whl
+          echo "/tmp/marain-venv/bin" >> "$GITHUB_PATH"
+      - name: Load packaged Lua outside the checkout and claim one Redis key
+        run: |
+          set -euo pipefail
+          PORT="$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+          redis-server --port "$PORT" --bind 127.0.0.1 --save "" --appendonly no --dir /tmp --daemonize no >/tmp/redis-ci.log 2>&1 &
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            redis-cli -p "$PORT" ping >/dev/null 2>&1 && break
+            sleep 0.2
+          done
+          redis-cli -p "$PORT" ping
+          cd /tmp
+          IDEMPOTENCY_TEST_REDIS_URL="redis://127.0.0.1:${PORT}/0" python "$GITHUB_WORKSPACE/tests/installed_claim.py"
+      - name: Run Python tests
+        working-directory: python
+        run: python -m unittest discover -s tests -v
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path rust/Cargo.toml
+      - name: Run cross-language and hook suites
+        run: |
+          tests/cross_language.sh
+          tests/test_hooks.sh
