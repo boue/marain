@@ -23,6 +23,13 @@ pub fn call_unprotected<T>(root: &Path, name: &str, detail: &str, run: impl FnOn
     run()
 }
 
+pub fn claims_log(root: Option<&Path>) -> String {
+    let base = root.map(|r| r.to_path_buf()).unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    base.join(".idempotency").join("claims.jsonl").to_string_lossy().into_owned()
+}
+
 pub fn write_claim(
     root: &Path,
     agent_id: &str,
