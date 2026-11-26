@@ -424,32 +424,67 @@ class ClientTests(unittest.TestCase):
 
 
 class ClaimsLogTests(unittest.TestCase):
+    def _new_lines(self, before: int) -> list[dict]:
+        path = claims_log()
+        with open(path, encoding="utf-8") as handle:
+            lines = [json.loads(line) for line in handle.readlines() if line.strip()]
+        return lines[before:]
+
     def test_claim_writes_sent_and_replayed_lines(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["IDEMPOTENCY_AGENT_ID"] = "agent-claims"
-            store = MemoryStore()
-            wrapper = client(store)
-            wrapper.once(DOC, lambda: value("first"))
-            wrapper.once(DOC, lambda: value("second"))
-            log_path = claims_log(root=tmp)
-            # The client uses the real repo root, so we check the actual path
-            actual_path = claims_log()
-            if not os.path.isfile(actual_path):
-                self.skipTest("claims log not written to expected location")
-            with open(actual_path, encoding="utf-8") as handle:
-                lines = [json.loads(line) for line in handle.readlines()]
-            self.assertGreaterEqual(len(lines), 2)
-            sent = [line for line in lines if line["outcome"] == "sent"]
-            replayed = [line for line in lines if line["outcome"] == "replayed"]
-            self.assertGreaterEqual(len(sent), 1)
-            self.assertGreaterEqual(len(replayed), 1)
-            self.assertEqual(sent[0]["agent_id"], "agent-a")
-            self.assertEqual(sent[0]["operation_id"], operation_id(DOC))
-            self.assertIn("scope_id", sent[0])
-            self.assertIn("ts", sent[0])
-            self.assertIn("v", sent[0])
-            self.assertFalse(sent[0]["repo_wide"])
-            del os.environ["IDEMPOTENCY_AGENT_ID"]
+        path = Path(claims_log())
+        before = len(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else 0
+        http_doc = {"kind": "http", "method": "POST", "url": "https://api.example.com/users/123"}
+        wrapper = client()
+        wrapper.once(http_doc, lambda: value("first"))
+        wrapper.once(http_doc, lambda: value("second"))
+        lines = self._new_lines(before)
+        self.assertEqual([line["outcome"] for line in lines], ["sent", "replayed"])
+        self.assertEqual(lines[0]["agent_id"], "agent-a")
+        self.assertEqual(lines[0]["operation_id"], operation_id(http_doc))
+        self.assertEqual(lines[0]["resource_key"], "http:POST:api.example.com:/users/:id")
+        self.assertEqual(lines[1]["resource_key"], lines[0]["resource_key"])
+        self.assertIn("scope_id", lines[0])
+        self.assertIn("ts", lines[0])
+        self.assertEqual(lines[0]["v"], 1)
+        self.assertFalse(lines[0]["repo_wide"])
+
+    def test_blocked_claim_records_resource_key(self):
+        path = Path(claims_log())
+        before = len(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else 0
+        hook_doc = {"kind": "hook", "hook": "pre-commit"}
+
+        def boom():
+            raise RuntimeError("boom")
+
+        with self.assertRaises(Blocked):
+            client().once(hook_doc, boom)
+        lines = self._new_lines(before)
+        self.assertEqual([line["outcome"] for line in lines], ["sent", "blocked"])
+        self.assertEqual(lines[1]["resource_key"], "hook:pre-commit")
+
+    def test_hotspots_groups_claims_the_client_wrote(self):
+        from agent_idempotency.hotspots import hotspots
+
+        path = Path(claims_log())
+        before = len(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else 0
+        doc = {"kind": "http", "method": "POST", "url": "https://api.example.com/users/123"}
+
+        class OneScope:
+            def __init__(self, scope_id, agent_id):
+                self.scope = dict(SCOPE)
+                self.scope["scope_id"] = scope_id
+                self.scope["agent_id"] = agent_id
+
+            def current(self):
+                return self.scope
+
+        Client(MemoryStore(), OneScope("a" * 64, "agent-1")).once(doc, lambda: value("one"))
+        Client(MemoryStore(), OneScope("b" * 64, "agent-2")).once(doc, lambda: value("two"))
+        found = hotspots(self._new_lines(before), min_agents=2)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["resource_key"], "http:POST:api.example.com:/users/:id")
+        self.assertEqual(found[0]["agent_count"], 2)
+        self.assertEqual(found[0]["duplicate_operations"], 1)
 
 
 class HotspotsTests(unittest.TestCase):

@@ -10,6 +10,7 @@ from agent_idempotency.canonical import (
     canonical_dumps,
     error_envelope,
     operation_id,
+    parse_json_value,
     resource_key,
     success_envelope,
     token_for,
@@ -123,6 +124,7 @@ class Client:
                 operation_id=op_id,
                 outcome="replayed",
                 repo_wide=repo_wide,
+                resource_key=rk,
             )
             return self._follow_existing(tok, claimed)
         record = claimed["record"]
@@ -132,8 +134,18 @@ class Client:
             operation_id=op_id,
             outcome="sent",
             repo_wide=repo_wide,
+            resource_key=rk,
         )
-        return self._owned(tok, record["owner"], int(record["fence"]), document, run)
+        return self._owned(
+            tok,
+            record["owner"],
+            int(record["fence"]),
+            document,
+            run,
+            scope=scope,
+            repo_wide=repo_wide,
+            resource_key=rk,
+        )
 
     def resolve_blocked(self, document: dict, *, decision: str, evidence: str, result: dict | None = None):
         """Release a blocked key, or complete it with a contract result that fits."""
@@ -168,7 +180,18 @@ class Client:
             raise self._status_error(done)
         return result
 
-    def _owned(self, tok: str, owner: str, fence: int, document: dict, run: Callable[[], dict]) -> dict:
+    def _owned(
+        self,
+        tok: str,
+        owner: str,
+        fence: int,
+        document: dict,
+        run: Callable[[], dict],
+        *,
+        scope: dict,
+        repo_wide: bool,
+        resource_key: str,
+    ) -> dict:
         dispatched = False
         try:
             snapshot = canonical_dumps(encrypt(self.record_key, tok, redact(document)))
@@ -191,13 +214,13 @@ class Client:
             self._store_rollback(tok, owner, fence, exc)
             raise ReplayError("rolled_back", str(exc)[:500]) from exc
         except OversizedResult:
-            self._block(tok, owner, fence, "oversized_result")
+            self._block(tok, owner, fence, "oversized_result", scope, repo_wide, resource_key, document)
             raise
         except NonserializableResult:
-            self._block(tok, owner, fence, "nonserializable_result")
+            self._block(tok, owner, fence, "nonserializable_result", scope, repo_wide, resource_key, document)
             raise
         except UncertainOutcome as exc:
-            self._block(tok, owner, fence, exc.reason)
+            self._block(tok, owner, fence, exc.reason, scope, repo_wide, resource_key, document)
             raise Blocked(exc.reason) from exc
         except (Blocked, ReplayError, RedisUnavailable, StaleOwner):
             raise
@@ -205,7 +228,7 @@ class Client:
             if not dispatched:
                 self._clear(False, tok, owner, fence)
                 raise
-            self._block(tok, owner, fence, "uncertain_exception")
+            self._block(tok, owner, fence, "uncertain_exception", scope, repo_wide, resource_key, document)
             raise Blocked("uncertain_exception") from exc
 
     def _store_rollback(self, tok: str, owner: str, fence: int, exc: ConfirmedRollback) -> None:
@@ -254,10 +277,12 @@ class Client:
         raise RedisUnavailable(f"unexpected record status {status}")
 
     def _replay(self, tok: str, record: Any) -> dict:
-        if not isinstance(record, dict) or not isinstance(record.get("result"), dict):
+        if not isinstance(record, dict) or record.get("result") is None:
             raise ReplayError("replay_undecodable", "stored result is missing")
         try:
-            opened = decrypt(self.record_key, tok, record["result"])
+            opened = decrypt(self.record_key, tok, _stored_object(record["result"]))
+        except ReplayError:
+            raise
         except Exception as exc:
             raise ReplayError("replay_undecodable", "stored result cannot be opened") from exc
         outcome = opened.get("outcome")
@@ -275,11 +300,19 @@ class Client:
         except IdempotencyError:
             return
 
-    def _block(self, tok: str, owner: str, fence: int, reason: str) -> None:
+    def _block(self, tok: str, owner: str, fence: int, reason: str, scope: dict, repo_wide: bool, resource_key: str, document: dict) -> None:
         try:
             self._store("block", tok, owner=owner, fence=fence, body=canonical_dumps({"reason": reason}))
         except IdempotencyError:
-            return
+            pass
+        write_claim(
+            agent_id=scope.get("agent_id", ""),
+            scope_id=scope["scope_id"],
+            operation_id=operation_id(document),
+            outcome="blocked",
+            repo_wide=repo_wide,
+            resource_key=resource_key,
+        )
 
     def _store(self, op: str, token: str, *, owner: str = "", fence: int = 0, body: str = "") -> dict:
         try:
@@ -334,3 +367,15 @@ class Client:
         if reason:
             return Blocked(str(reason))
         return RedisUnavailable(f"idempotency transition was {status}")
+
+
+def _stored_object(value: Any) -> dict:
+    """Redis keeps canonical JSON text so an empty array is not stored as an object."""
+    if isinstance(value, str):
+        try:
+            value = parse_json_value(value)
+        except Exception as exc:
+            raise ReplayError("replay_undecodable", "stored result is missing") from exc
+    if not isinstance(value, dict):
+        raise ReplayError("replay_undecodable", "stored result is missing")
+    return value

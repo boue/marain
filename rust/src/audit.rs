@@ -37,6 +37,7 @@ pub fn write_claim(
     operation_id: &str,
     outcome: &str,
     repo_wide: bool,
+    resource_key: &str,
 ) {
     let directory = root.join(".idempotency");
     let _ = fs::create_dir_all(&directory);
@@ -49,6 +50,7 @@ pub fn write_claim(
         "agent_id": agent_id,
         "scope_id": scope_id,
         "operation_id": operation_id,
+        "resource_key": resource_key,
         "outcome": outcome,
         "repo_wide": repo_wide,
     });

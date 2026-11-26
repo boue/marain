@@ -30,6 +30,7 @@ def write_claim(
     operation_id: str,
     outcome: str,
     repo_wide: bool = False,
+    resource_key: str = "",
     root: str | None = None,
 ) -> None:
     """Append a claim audit line. Fail-open: warn on error, never block."""
@@ -41,6 +42,7 @@ def write_claim(
         "agent_id": agent_id,
         "scope_id": scope_id,
         "operation_id": operation_id,
+        "resource_key": resource_key,
         "outcome": outcome,
         "repo_wide": repo_wide,
     }
