@@ -452,6 +452,46 @@ class ClaimsLogTests(unittest.TestCase):
             del os.environ["IDEMPOTENCY_AGENT_ID"]
 
 
+class HotspotsTests(unittest.TestCase):
+    def test_hotspots_groups_by_resource_and_flags_duplicates(self):
+        from agent_idempotency.hotspots import hotspots
+
+        claims = [
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a1", "scope_id": "s1", "operation_id": "op1", "outcome": "sent"},
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a2", "scope_id": "s2", "operation_id": "op1", "outcome": "sent"},
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a1", "scope_id": "s1", "operation_id": "op2", "outcome": "sent"},
+            {"resource_key": "db:sqlite:app:users", "agent_id": "a1", "scope_id": "s1", "operation_id": "op3", "outcome": "sent"},
+        ]
+        results = hotspots(claims, min_agents=2)
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertEqual(r["resource_key"], "http:POST:api:/users/:id")
+        self.assertEqual(r["agent_count"], 2)
+        self.assertEqual(r["duplicate_operations"], 1)
+        self.assertEqual(len(r["operations"]), 2)
+
+    def test_hotspots_min_agents_filter(self):
+        from agent_idempotency.hotspots import hotspots
+
+        claims = [
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a1", "scope_id": "s1", "operation_id": "op1", "outcome": "sent"},
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a1", "scope_id": "s1", "operation_id": "op2", "outcome": "sent"},
+        ]
+        results = hotspots(claims, min_agents=2)
+        self.assertEqual(len(results), 0)
+
+    def test_hotspots_agent_filter(self):
+        from agent_idempotency.hotspots import hotspots
+
+        claims = [
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a1", "scope_id": "s1", "operation_id": "op1", "outcome": "sent"},
+            {"resource_key": "http:POST:api:/users/:id", "agent_id": "a2", "scope_id": "s2", "operation_id": "op1", "outcome": "sent"},
+        ]
+        results = hotspots(claims, min_agents=1, agent_filter="a1")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["agent_count"], 1)
+
+
 class HttpAndDbTests(unittest.TestCase):
     def test_http_replay_and_uncertain_timeout(self):
         calls = []

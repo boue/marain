@@ -9,6 +9,7 @@ pub mod client;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod hotspots;
 pub mod http;
 pub mod scope;
 pub mod store;

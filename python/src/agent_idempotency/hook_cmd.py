@@ -30,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     active.add_argument("args", nargs=argparse.REMAINDER)
     sub.add_parser("validate")
     sub.add_parser("install-hooks")
+    hotspots = sub.add_parser("hotspots")
+    hotspots.add_argument("--since", default="7d")
+    hotspots.add_argument("--agent", default="")
+    hotspots.add_argument("--min-agents", type=int, default=2)
+    hotspots.add_argument("--log", default="")
     run_hook = sub.add_parser("run-hook")
     run_hook.add_argument("hook")
     run_hook.add_argument("preserved", nargs="?", default="")
@@ -50,6 +55,14 @@ def main(argv: list[str] | None = None) -> int:
         return _validate()
     if args.command == "install-hooks":
         return _install_hooks()
+    if args.command == "hotspots":
+        from agent_idempotency.hotspots import main as hotspots_main
+        return hotspots_main([
+            "--since", args.since,
+            "--agent", args.agent,
+            "--min-agents", str(args.min_agents),
+            "--log", args.log,
+        ])
     if args.command == "run-hook":
         extra = list(args.args)
         if extra and extra[0] == "--":

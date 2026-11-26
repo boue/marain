@@ -244,3 +244,9 @@ Each case names the observation that makes it pass:
 - An HTTP timeout blocks as `uncertain_http_outcome`.
 - A database rollback replays `rolled_back` and does not leave a committed row.
 - `call_unprotected` runs the side effect twice and appends two bypass lines.
+- Every claim writes a line to `.idempotency/claims.jsonl` with `agent_id`, `scope_id`, `operation_id`, `outcome`, `ts`, and `repo_wide`.
+- `resource_key` for HTTP is `method:host:path` with numeric segments replaced by `:id`.
+- `resource_key` for DB is `driver:database:sorted_tables` extracted by regex from the main statement.
+- `resource_key` for hooks is `hook:<name>`.
+- `repo_wide: true` in the operation document uses `repo_id` instead of `scope_id` for the token.
+- `agent-idempotency hotspots` groups claims by `resource_key`, counts distinct agents, and flags operations sent under more than one scope.
