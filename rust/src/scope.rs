@@ -10,6 +10,7 @@ use crate::error::Error;
 #[derive(Clone, Debug)]
 pub struct Scope {
     pub scope_id: String,
+    pub agent_id: String,
 }
 
 pub trait ScopeSource: Send + Sync {
@@ -22,7 +23,7 @@ pub struct StaticScope {
 
 impl ScopeSource for StaticScope {
     fn current(&self) -> Result<Scope, Error> {
-        Ok(Scope { scope_id: self.scope_id.clone() })
+        Ok(Scope { scope_id: self.scope_id.clone(), agent_id: String::new() })
     }
 }
 
@@ -60,7 +61,7 @@ impl ScopeSource for GitScope {
         if fresh.repo_id != file.repo_id || fresh.worktree_id != file.worktree_id || fresh.execution_id != file.execution_id {
             return Err(Error::StaleScope("execution identity changed".into()));
         }
-        Ok(Scope { scope_id: file.scope_id })
+        Ok(Scope { scope_id: file.scope_id, agent_id: file.agent_id })
     }
 }
 
