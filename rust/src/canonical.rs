@@ -26,6 +26,120 @@ pub fn token_for(scope_id: &str, op_id: &str) -> String {
     sha256_hex(format!("{scope_id}\n{op_id}").as_bytes())
 }
 
+pub fn token_for_repo(repo_id: &str, op_id: &str) -> String {
+    sha256_hex(format!("{repo_id}\n{op_id}").as_bytes())
+}
+
+pub fn resource_key(document: &Value) -> Result<String, Error> {
+    let kind = document.get("kind").and_then(Value::as_str).unwrap_or("");
+    match kind {
+        "http" => http_resource_key(document),
+        "db" => db_resource_key(document),
+        "hook" => Ok(format!("hook:{}", document.get("hook").and_then(Value::as_str).unwrap_or(""))),
+        _ => Ok(format!("{kind}:unknown")),
+    }
+}
+
+fn http_resource_key(document: &Value) -> Result<String, Error> {
+    let method = document.get("method").and_then(Value::as_str).unwrap_or("GET");
+    let url = document.get("url").and_then(Value::as_str).unwrap_or("");
+    let parsed = Url::parse(url).map_err(|_| Error::Canonical("url could not be parsed".into()))?;
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let path = normalize_path_for_resource(parsed.path());
+    Ok(format!("http:{method}:{host}:{path}"))
+}
+
+fn normalize_path_for_resource(path: &str) -> String {
+    let segments: Vec<&str> = path.split('/').collect();
+    let normalized: Vec<String> = segments
+        .iter()
+        .map(|segment| {
+            if !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_digit()) {
+                ":id".to_string()
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect();
+    let result = normalized.join("/");
+    if result.is_empty() {
+        "/".into()
+    } else {
+        result
+    }
+}
+
+fn db_resource_key(document: &Value) -> Result<String, Error> {
+    let target = document.get("target").and_then(Value::as_object);
+    let driver = target.and_then(|t| t.get("driver")).and_then(Value::as_str).unwrap_or("");
+    let database = target.and_then(|t| t.get("database")).and_then(Value::as_str).unwrap_or("");
+    let empty = vec![];
+    let statements = document.get("statements").and_then(Value::as_array).unwrap_or(&empty);
+    let mut tables = std::collections::BTreeSet::new();
+    for stmt in statements {
+        if let Some(sql) = stmt.get("sql").and_then(Value::as_str) {
+            for table in extract_tables(sql) {
+                tables.insert(table);
+            }
+        }
+    }
+    if tables.is_empty() {
+        let op_id = operation_id(document)?;
+        return Ok(format!("db:{driver}:{database}:unparseable:{op_id}"));
+    }
+    let table_list: Vec<&str> = tables.iter().map(|s| s.as_str()).collect();
+    Ok(format!("db:{driver}:{database}:{}", table_list.join(",")))
+}
+
+fn extract_tables(sql: &str) -> Vec<String> {
+    let mut tables = Vec::new();
+    let upper = sql.to_ascii_uppercase();
+    // INSERT INTO <table>
+    if let Some(pos) = upper.find("INSERT INTO ") {
+        let rest = &sql[pos + 12..];
+        if let Some(table) = rest.split_whitespace().next() {
+            tables.push(table.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string());
+        }
+    }
+    // UPDATE <table> SET
+    if let Some(pos) = upper.find("UPDATE ") {
+        let rest = &upper[pos + 7..];
+        if let Some(end) = rest.find(" SET") {
+            let table = &sql[pos + 7..pos + 7 + end];
+            tables.push(table.trim().to_string());
+        }
+    }
+    // DELETE FROM <table>
+    if let Some(pos) = upper.find("DELETE FROM ") {
+        let rest = &sql[pos + 12..];
+        if let Some(table) = rest.split_whitespace().next() {
+            tables.push(table.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string());
+        }
+    }
+    // CREATE TABLE <table>
+    if let Some(pos) = upper.find("CREATE TABLE ") {
+        let rest = &sql[pos + 13..];
+        if let Some(table) = rest.split_whitespace().next() {
+            tables.push(table.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string());
+        }
+    }
+    // ALTER TABLE <table>
+    if let Some(pos) = upper.find("ALTER TABLE ") {
+        let rest = &sql[pos + 12..];
+        if let Some(table) = rest.split_whitespace().next() {
+            tables.push(table.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string());
+        }
+    }
+    // DROP TABLE <table>
+    if let Some(pos) = upper.find("DROP TABLE ") {
+        let rest = &sql[pos + 11..];
+        if let Some(table) = rest.split_whitespace().next() {
+            tables.push(table.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string());
+        }
+    }
+    tables
+}
+
 pub fn http_document(method: &str, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<Value, Error> {
     let pairs: Vec<(String, String)> = headers
         .iter()

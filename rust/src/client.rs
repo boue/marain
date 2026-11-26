@@ -5,7 +5,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::audit::write_claim;
-use crate::canonical::{canonical_dumps, error_envelope, operation_id, success_envelope, token_for};
+use crate::canonical::{canonical_dumps, error_envelope, operation_id, resource_key, success_envelope, token_for, token_for_repo};
 use crate::crypto::{decrypt, encrypt, parse_record_key, redact};
 use crate::error::Error;
 use crate::scope::{GitScope, ScopeSource};
@@ -70,7 +70,16 @@ impl Client {
         let scope = self.scope.current()?;
         self.guard_config()?;
         let op_id = operation_id(document)?;
-        let token = token_for(&scope.scope_id, &op_id);
+        let repo_wide = document.get("repo_wide").and_then(Value::as_bool).unwrap_or(false);
+        let token = if repo_wide {
+            let repo_id = scope.repo_id.as_str();
+            if repo_id.is_empty() {
+                return Err(Error::Canonical("repo_wide requires repo_id in scope".into()));
+            }
+            token_for_repo(repo_id, &op_id)
+        } else {
+            token_for(&scope.scope_id, &op_id)
+        };
         let owner = Uuid::new_v4().simple().to_string();
         let claim_body = canonical_dumps(&serde_json::json!({
             "operation_id": op_id,
@@ -87,7 +96,7 @@ impl Client {
                 &scope.scope_id,
                 &op_id,
                 "replayed",
-                false,
+                repo_wide,
             );
             return self.follow_existing(&token, &claimed);
         }
@@ -98,7 +107,7 @@ impl Client {
             &scope.scope_id,
             &op_id,
             "sent",
-            false,
+            repo_wide,
         );
         self.owned(&token, &record.owner, record.fence, document, run)
     }

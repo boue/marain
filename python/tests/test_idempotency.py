@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from agent_idempotency.audit import bypass_log, call_unprotected, claims_log
-from agent_idempotency.canonical import canonical_dumps, db_document, http_document, operation_id, token_for
+from agent_idempotency.canonical import canonical_dumps, db_document, http_document, operation_id, resource_key, token_for
 from agent_idempotency.client import Client
 from agent_idempotency.crypto import parse_record_key, seal
 from agent_idempotency.db import SqliteSession, db_execute, statement
@@ -100,6 +100,61 @@ class CanonicalTests(unittest.TestCase):
         self.assertNotIn("name", document)
         with self.assertRaises(CanonicalError):
             db_document({"driver": "sqlite", "password": "nope"}, [], "deferred")
+
+    def test_resource_key_http_numeric_path(self):
+        doc = http_document("POST", "https://api.example.com/users/123", {}, b"")
+        self.assertEqual(resource_key(doc), "http:POST:api.example.com:/users/:id")
+
+    def test_resource_key_http_nested_numeric(self):
+        doc = http_document("GET", "https://api.example.com/users/123/posts/456", {}, b"")
+        self.assertEqual(resource_key(doc), "http:GET:api.example.com:/users/:id/posts/:id")
+
+    def test_resource_key_http_no_numeric(self):
+        doc = http_document("GET", "https://api.example.com/health", {}, b"")
+        self.assertEqual(resource_key(doc), "http:GET:api.example.com:/health")
+
+    def test_resource_key_http_root(self):
+        doc = http_document("GET", "https://api.example.com/", {}, b"")
+        self.assertEqual(resource_key(doc), "http:GET:api.example.com:/")
+
+    def test_resource_key_db_insert(self):
+        doc = db_document(
+            {"driver": "sqlite", "database": "app", "host": "", "port": 0, "user": "agent"},
+            [statement("INSERT INTO users (name) VALUES (?)", ["alice"])],
+            "deferred",
+        )
+        self.assertEqual(resource_key(doc), "db:sqlite:app:users")
+
+    def test_resource_key_db_update(self):
+        doc = db_document(
+            {"driver": "sqlite", "database": "app", "host": "", "port": 0, "user": "agent"},
+            [statement("UPDATE posts SET title=? WHERE id=?", ["hello", 1])],
+            "deferred",
+        )
+        self.assertEqual(resource_key(doc), "db:sqlite:app:posts")
+
+    def test_resource_key_db_multiple_tables(self):
+        doc = db_document(
+            {"driver": "sqlite", "database": "app", "host": "", "port": 0, "user": "agent"},
+            [
+                statement("INSERT INTO users (name) VALUES (?)", ["alice"]),
+                statement("UPDATE posts SET title=?", ["hello"]),
+            ],
+            "deferred",
+        )
+        self.assertEqual(resource_key(doc), "db:sqlite:app:posts,users")
+
+    def test_resource_key_db_unparseable(self):
+        doc = db_document(
+            {"driver": "sqlite", "database": "app", "host": "", "port": 0, "user": "agent"},
+            [statement("SELECT 1", [])],
+            "deferred",
+        )
+        key = resource_key(doc)
+        self.assertTrue(key.startswith("db:sqlite:app:unparseable:"))
+
+    def test_resource_key_hook(self):
+        self.assertEqual(resource_key({"kind": "hook", "hook": "pre-commit"}), "hook:pre-commit")
 
     def test_shared_fixtures(self):
         payload = json.loads((ROOT / "protocol" / "fixtures" / "tokens.json").read_text())
