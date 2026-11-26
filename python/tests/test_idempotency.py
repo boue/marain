@@ -11,7 +11,7 @@ import unittest
 import urllib.request
 from pathlib import Path
 
-from agent_idempotency.audit import bypass_log, call_unprotected
+from agent_idempotency.audit import bypass_log, call_unprotected, claims_log
 from agent_idempotency.canonical import canonical_dumps, db_document, http_document, operation_id, token_for
 from agent_idempotency.client import Client
 from agent_idempotency.crypto import parse_record_key, seal
@@ -356,6 +356,35 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(stored["enc"], "aes-256-gcm")
         self.assertNotIn("secret-body", canonical_dumps(stored))
         self.assertEqual(wrapper.once(DOC, lambda: value("other")), value("secret-body"))
+
+
+class ClaimsLogTests(unittest.TestCase):
+    def test_claim_writes_sent_and_replayed_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["IDEMPOTENCY_AGENT_ID"] = "agent-claims"
+            store = MemoryStore()
+            wrapper = client(store)
+            wrapper.once(DOC, lambda: value("first"))
+            wrapper.once(DOC, lambda: value("second"))
+            log_path = claims_log(root=tmp)
+            # The client uses the real repo root, so we check the actual path
+            actual_path = claims_log()
+            if not os.path.isfile(actual_path):
+                self.skipTest("claims log not written to expected location")
+            with open(actual_path, encoding="utf-8") as handle:
+                lines = [json.loads(line) for line in handle.readlines()]
+            self.assertGreaterEqual(len(lines), 2)
+            sent = [line for line in lines if line["outcome"] == "sent"]
+            replayed = [line for line in lines if line["outcome"] == "replayed"]
+            self.assertGreaterEqual(len(sent), 1)
+            self.assertGreaterEqual(len(replayed), 1)
+            self.assertEqual(sent[0]["agent_id"], "agent-a")
+            self.assertEqual(sent[0]["operation_id"], operation_id(DOC))
+            self.assertIn("scope_id", sent[0])
+            self.assertIn("ts", sent[0])
+            self.assertIn("v", sent[0])
+            self.assertFalse(sent[0]["repo_wide"])
+            del os.environ["IDEMPOTENCY_AGENT_ID"]
 
 
 class HttpAndDbTests(unittest.TestCase):

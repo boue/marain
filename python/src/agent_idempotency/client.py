@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Any, Callable
 
+from agent_idempotency.audit import write_claim
 from agent_idempotency.canonical import (
     canonical_dumps,
     error_envelope,
@@ -106,8 +107,22 @@ class Client:
         if claimed.get("status") == "corrupt":
             raise RedisUnavailable("idempotency record is corrupt")
         if claimed.get("status") != "claimed":
+            write_claim(
+                agent_id=scope.get("agent_id", ""),
+                scope_id=scope["scope_id"],
+                operation_id=op_id,
+                outcome="replayed",
+                repo_wide=False,
+            )
             return self._follow_existing(tok, claimed)
         record = claimed["record"]
+        write_claim(
+            agent_id=scope.get("agent_id", ""),
+            scope_id=scope["scope_id"],
+            operation_id=op_id,
+            outcome="sent",
+            repo_wide=False,
+        )
         return self._owned(tok, record["owner"], int(record["fence"]), document, run)
 
     def resolve_blocked(self, document: dict, *, decision: str, evidence: str, result: dict | None = None):

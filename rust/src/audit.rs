@@ -22,3 +22,32 @@ pub fn call_unprotected<T>(root: &Path, name: &str, detail: &str, run: impl FnOn
     }
     run()
 }
+
+pub fn write_claim(
+    root: &Path,
+    agent_id: &str,
+    scope_id: &str,
+    operation_id: &str,
+    outcome: &str,
+    repo_wide: bool,
+) {
+    let directory = root.join(".idempotency");
+    let _ = fs::create_dir_all(&directory);
+    let record = json!({
+        "v": 1,
+        "ts": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        "agent_id": agent_id,
+        "scope_id": scope_id,
+        "operation_id": operation_id,
+        "outcome": outcome,
+        "repo_wide": repo_wide,
+    });
+    if let Ok(line) = canonical_dumps(&record) {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(directory.join("claims.jsonl")) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+}

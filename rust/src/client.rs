@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::audit::write_claim;
 use crate::canonical::{canonical_dumps, error_envelope, operation_id, success_envelope, token_for};
 use crate::crypto::{decrypt, encrypt, parse_record_key, redact};
 use crate::error::Error;
@@ -80,9 +81,25 @@ impl Client {
             return Err(Error::RedisUnavailable("idempotency record is corrupt".into()));
         }
         if claimed.status != "claimed" {
+            write_claim(
+                std::path::Path::new("."),
+                &scope.agent_id,
+                &scope.scope_id,
+                &op_id,
+                "replayed",
+                false,
+            );
             return self.follow_existing(&token, &claimed);
         }
         let record = claimed.record.ok_or_else(|| Error::RedisUnavailable("claim did not return a record".into()))?;
+        write_claim(
+            std::path::Path::new("."),
+            &scope.agent_id,
+            &scope.scope_id,
+            &op_id,
+            "sent",
+            false,
+        );
         self.owned(&token, &record.owner, record.fence, document, run)
     }
 
