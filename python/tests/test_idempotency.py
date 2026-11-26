@@ -166,6 +166,16 @@ class CanonicalTests(unittest.TestCase):
             self.assertEqual(op_id, case["operation_id"], case["name"])
             self.assertEqual(token_for(case["scope_id"], op_id), case["token"], case["name"])
 
+    def test_resource_key_fixtures(self):
+        payload = json.loads((ROOT / "protocol" / "fixtures" / "resource-keys.json").read_text())
+        for case in payload["cases"]:
+            document = case["document"]
+            self.assertEqual(resource_key(document), case["resource_key"], case["name"])
+            self.assertEqual(operation_id(document), case["operation_id"], case["name"])
+            self.assertEqual(token_for(case.get("scope_id", "11" * 32), case["operation_id"]), case["token_scope"], case["name"])
+            if case.get("repo_wide"):
+                self.assertIn("token_repo", case, case["name"])
+
 
 class ClientTests(unittest.TestCase):
     def test_second_call_replays_without_running(self):
