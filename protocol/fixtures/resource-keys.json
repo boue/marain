@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "http-numeric-path",
+      "document": {
+        "kind": "http",
+        "method": "POST",
+        "url": "https://api.example.com/users/123",
+        "headers": [],
+        "body": {
+          "kind": "empty"
+        }
+      },
+      "resource_key": "http:POST:api.example.com:/users/:id",
+      "operation_id": "a91fa0121e4d2613da967455b1a8ed56710b9f756761cbec7aef2a2d806c12a6",
+      "token_scope": "8ce9c9fc5e9fa59037b996ca2ba2db9cd1f0776ece4ad19466d88c1895edad67"
+    },
+    {
+      "name": "http-nested-numeric",
+      "document": {
+        "kind": "http",
+        "method": "GET",
+        "url": "https://api.example.com/users/123/posts/456",
+        "headers": [],
+        "body": {
+          "kind": "empty"
+        }
+      },
+      "resource_key": "http:GET:api.example.com:/users/:id/posts/:id",
+      "operation_id": "85a5a8ec60551c8688e7403c10bea13bcdc2f9440f1ef4c6d92eb5241477f68f",
+      "token_scope": "d8514e7d725ce866aa0fa0688b2fc30f9213247a180899375d710be94c459ba0"
+    },
+    {
+      "name": "http-no-numeric",
+      "document": {
+        "kind": "http",
+        "method": "GET",
+        "url": "https://api.example.com/health",
+        "headers": [],
+        "body": {
+          "kind": "empty"
+        }
+      },
+      "resource_key": "http:GET:api.example.com:/health",
+      "operation_id": "2629d537fa8ff277fe792d32e162227b29c3bb3ec1ebc324a58a76d2894ed58a",
+      "token_scope": "96e19a45756a8891090c20843406d878da2b5fee542bfedaee5d22e71dce1315"
+    },
+    {
+      "name": "http-root",
+      "document": {
+        "kind": "http",
+        "method": "GET",
+        "url": "https://api.example.com/",
+        "headers": [],
+        "body": {
+          "kind": "empty"
+        }
+      },
+      "resource_key": "http:GET:api.example.com:/",
+      "operation_id": "6918c60f4f24358fdc7a20b62e8056b35ed9f919a2eec572d4289f3a39655f47",
+      "token_scope": "ab9a12e9635d2b6c52e94c90ede056c9a612f7fded8fb84167553e456f380e77"
+    },
+    {
+      "name": "db-insert",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [
+              {
+                "type": "string",
+                "value": "alice"
+              }
+            ],
+            "sql": "INSERT INTO users (name) VALUES (?)"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:users",
+      "operation_id": "cca37cfcc9e6fb03428f1d0623c267439fd38bf7a575838f55231b5ec4eb433e",
+      "token_scope": "fe0b020889437863c4d32fd6085d1663a7b27b880ce55f41b3bb1f0854166170"
+    },
+    {
+      "name": "db-update",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [
+              {
+                "type": "string",
+                "value": "hello"
+              },
+              {
+                "type": "int",
+                "value": 1
+              }
+            ],
+            "sql": "UPDATE posts SET title=? WHERE id=?"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:posts",
+      "operation_id": "0c51490b71c4d61b7aaa55f03704b540468a17c52553a76f601ddfa64a5e4b4a",
+      "token_scope": "b692c093a0c7bfcdbdf2e92f7e105e092459b38f49cf2b5c9c844b53bf10875a"
+    },
+    {
+      "name": "db-delete",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [
+              {
+                "type": "int",
+                "value": 1
+              }
+            ],
+            "sql": "DELETE FROM comments WHERE id=?"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:comments",
+      "operation_id": "47cdf6978b609b1bc8f9bc777e5eff8d83c9f34e8c0e7fb861913a7fa11dda34",
+      "token_scope": "46e8b232ec93482619a6be138cc286cd1167b61645d94678e904abd42dd330c1"
+    },
+    {
+      "name": "db-create",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [],
+            "sql": "CREATE TABLE t (id INTEGER)"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:t",
+      "operation_id": "0aa3635c850c32158e9b95fef23dfb6f5e05ecc0521e086822555bd0d8520bbc",
+      "token_scope": "40e992b619ed338d81ee3303f6c8df5c56f86c3cdb377bd8273dc4a4cdf5ed3b"
+    },
+    {
+      "name": "db-multiple-tables",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [
+              {
+                "type": "string",
+                "value": "alice"
+              }
+            ],
+            "sql": "INSERT INTO users (name) VALUES (?)"
+          },
+          {
+            "params": [
+              {
+                "type": "string",
+                "value": "hello"
+              }
+            ],
+            "sql": "UPDATE posts SET title=?"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:posts,users",
+      "operation_id": "46fcffad23519441dbb41b92503abf8714d44265540ee66a7fef4741d97f1a7e",
+      "token_scope": "1b082734085606cd6bd6cd7d736d3607b4dd177699e1616fd41caeb608612d2a"
+    },
+    {
+      "name": "db-unparseable",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [],
+            "sql": "SELECT 1"
+          }
+        ]
+      },
+      "resource_key": "db:sqlite:app:unparseable:90dfacd792a7e4625b31033c204b289b2cb0fd6a340b3b86b0472a1d84e5b341",
+      "operation_id": "90dfacd792a7e4625b31033c204b289b2cb0fd6a340b3b86b0472a1d84e5b341",
+      "token_scope": "31cb5e3c6e9fb494f8a28cc098c7db048f7f82cad953beb4b99504bb94ddb3b2"
+    },
+    {
+      "name": "hook-pre-commit",
+      "document": {
+        "kind": "hook",
+        "hook": "pre-commit"
+      },
+      "resource_key": "hook:pre-commit",
+      "operation_id": "5c2d000fcb6caaf3a80006821495422da52c79a7b107cbfb43201c97333bfb79",
+      "token_scope": "61c5d3de1faa821251f90799e799708eb31345f2c3e84016cd8a4d5e3e867523"
+    },
+    {
+      "name": "http-repo-wide",
+      "document": {
+        "kind": "http",
+        "method": "POST",
+        "url": "https://api.example.com/users/123",
+        "headers": [],
+        "body": {
+          "kind": "empty"
+        },
+        "repo_wide": true
+      },
+      "resource_key": "http:POST:api.example.com:/users/:id",
+      "repo_wide": true,
+      "operation_id": "e5e08ab4a55b294179da1b6d2abc2f4d961a3612c0e1b9f7b1c7c948bef99ce6",
+      "token_scope": "9b84c68aef467bfab66c0046cd06ba37912d5a0c5d831662d8bda5627740c87d",
+      "token_repo": "366c61b6934067c79bc501f219a806be58ff0befdee716316a152d8d45efcaa0"
+    },
+    {
+      "name": "db-repo-wide",
+      "document": {
+        "kind": "db",
+        "target": {
+          "database": "app",
+          "driver": "sqlite",
+          "host": "",
+          "port": 0,
+          "user": "agent"
+        },
+        "transaction": {
+          "boundary": "single_transaction",
+          "isolation": "deferred"
+        },
+        "statements": [
+          {
+            "params": [
+              {
+                "type": "string",
+                "value": "alice"
+              }
+            ],
+            "sql": "INSERT INTO users (name) VALUES (?)"
+          }
+        ],
+        "repo_wide": true
+      },
+      "resource_key": "db:sqlite:app:users",
+      "repo_wide": true,
+      "operation_id": "4275cda6b0d0a2f9c2c8b2da316ba68406d265eeaa4c46eaf3a275741b1930aa",
+      "token_scope": "9d36a58c8bea08f16f7aef4fc803f659f0cbb262abfc5926c2694d3e9078ec90",
+      "token_repo": "3b05796fd1ca577a928e053671600beb9e1b626478a7a80a4fa7587f42fee772"
+    }
+  ]
+}
