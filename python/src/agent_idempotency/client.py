@@ -10,8 +10,10 @@ from agent_idempotency.canonical import (
     canonical_dumps,
     error_envelope,
     operation_id,
+    resource_key,
     success_envelope,
     token_for,
+    token_for_repo,
 )
 from agent_idempotency.crypto import decrypt, encrypt, parse_record_key
 from agent_idempotency.errors import (
@@ -96,7 +98,14 @@ class Client:
         scope = self.scope_source.current()
         self._guard_config()
         op_id = operation_id(document)
-        tok = token_for(scope["scope_id"], op_id)
+        repo_wide = document.get("repo_wide", False)
+        if repo_wide:
+            repo_id = scope.get("repo_id", "")
+            if not repo_id:
+                raise CanonicalError("repo_wide requires repo_id in scope")
+            tok = token_for_repo(repo_id, op_id)
+        else:
+            tok = token_for(scope["scope_id"], op_id)
         owner = uuid.uuid4().hex
         claimed = self._store(
             "claim",
@@ -106,13 +115,14 @@ class Client:
         )
         if claimed.get("status") == "corrupt":
             raise RedisUnavailable("idempotency record is corrupt")
+        rk = resource_key(document)
         if claimed.get("status") != "claimed":
             write_claim(
                 agent_id=scope.get("agent_id", ""),
                 scope_id=scope["scope_id"],
                 operation_id=op_id,
                 outcome="replayed",
-                repo_wide=False,
+                repo_wide=repo_wide,
             )
             return self._follow_existing(tok, claimed)
         record = claimed["record"]
@@ -121,7 +131,7 @@ class Client:
             scope_id=scope["scope_id"],
             operation_id=op_id,
             outcome="sent",
-            repo_wide=False,
+            repo_wide=repo_wide,
         )
         return self._owned(tok, record["owner"], int(record["fence"]), document, run)
 

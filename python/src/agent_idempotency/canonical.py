@@ -30,12 +30,97 @@ def token_for(scope_id: str, op_id: str) -> str:
     return sha256_hex(f"{scope_id}\n{op_id}".encode("utf-8"))
 
 
+def token_for_repo(repo_id: str, op_id: str) -> str:
+    """Token for repo-wide operations. Uses repo_id instead of scope_id."""
+    return sha256_hex(f"{repo_id}\n{op_id}".encode("utf-8"))
+
+
 def redis_key(token: str) -> str:
     return f"idempotency:v1:{token}"
 
 
 def fence_key(token: str) -> str:
     return f"idempotency:v1:fence:{token}"
+
+
+def resource_key(document: dict) -> str:
+    """Compute a resource key for hotspot grouping.
+    
+    HTTP: method + host + normalized path (numeric segments → :id)
+    DB: driver + database + sorted tables
+    Hook: hook:<name>
+    """
+    kind = document.get("kind")
+    if kind == "http":
+        return _http_resource_key(document)
+    if kind == "db":
+        return _db_resource_key(document)
+    if kind == "hook":
+        return f"hook:{document.get('hook', '')}"
+    return f"{kind}:unknown"
+
+
+def _http_resource_key(document: dict) -> str:
+    method = document.get("method", "GET")
+    url = document.get("url", "")
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    path = _normalize_path_for_resource(parts.path)
+    return f"http:{method}:{host}:{path}"
+
+
+def _normalize_path_for_resource(path: str) -> str:
+    """Replace numeric path segments with :id."""
+    import re
+    segments = path.split("/")
+    normalized = []
+    for segment in segments:
+        if segment and re.fullmatch(r"\d+", segment):
+            normalized.append(":id")
+        else:
+            normalized.append(segment)
+    return "/".join(normalized) or "/"
+
+
+def _db_resource_key(document: dict) -> str:
+    target = document.get("target", {})
+    driver = target.get("driver", "")
+    database = target.get("database", "")
+    statements = document.get("statements", [])
+    tables = set()
+    for stmt in statements:
+        sql = stmt.get("sql", "")
+        tables.update(_extract_tables(sql))
+    if not tables:
+        # Fallback: use operation_id for unparseable SQL
+        op_id = operation_id(document)
+        return f"db:{driver}:{database}:unparseable:{op_id}"
+    return f"db:{driver}:{database}:{','.join(sorted(tables))}"
+
+
+def _extract_tables(sql: str) -> set[str]:
+    """Extract table names from SQL. Regex-based, no full parser."""
+    import re
+    tables = set()
+    # INSERT INTO <table>
+    for match in re.finditer(r"INSERT\s+INTO\s+(\w+)", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    # UPDATE <table>
+    for match in re.finditer(r"UPDATE\s+(\w+)\s+SET", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    # DELETE FROM <table>
+    for match in re.finditer(r"DELETE\s+FROM\s+(\w+)", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    # CREATE TABLE <table>
+    for match in re.finditer(r"CREATE\s+TABLE\s+(\w+)", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    # ALTER TABLE <table>
+    for match in re.finditer(r"ALTER\s+TABLE\s+(\w+)", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    # DROP TABLE <table>
+    for match in re.finditer(r"DROP\s+TABLE\s+(\w+)", sql, re.IGNORECASE):
+        tables.add(match.group(1))
+    return tables
 
 
 def parse_json_value(text: str) -> Any:
