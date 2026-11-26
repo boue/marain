@@ -1,6 +1,7 @@
 """Lua transitions against a private Redis server."""
 
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -9,6 +10,7 @@ import unittest
 
 from agent_idempotency.canonical import canonical_dumps, token_for
 from agent_idempotency.client import Client
+from agent_idempotency.db import SqliteSession, db_execute, statement
 from agent_idempotency.errors import Blocked
 from agent_idempotency.store import RedisStore
 
@@ -173,6 +175,20 @@ class RedisTests(unittest.TestCase):
         self.assertEqual(stale["status"], "stale_owner")
         self.assertEqual(store.peek("fence-tok")["owner"], "owner-b")
         self.assertIsNone(store.peek("missing-token"))
+
+    def test_empty_sqlite_rows_replay_unchanged(self):
+        connection = sqlite3.connect(":memory:")
+        session = SqliteSession(connection)
+        session.connection.execute("create table t (id integer primary key, n integer)")
+        session.connection.commit()
+        target = {"database": "app", "driver": "sqlite", "host": "", "port": 0, "user": "agent"}
+        statements = [statement("insert into t (id, n) values (?, ?)", [1, 7])]
+        wrapper = Client(RedisStore(self.url), StaticScope(), record_ttl_seconds=30)
+        stored = db_execute(wrapper, target, statements, session)
+        again = db_execute(wrapper, target, statements, session)
+        self.assertEqual(stored["rows"], [[]])
+        self.assertEqual(again, stored)
+        self.assertEqual(connection.execute("select count(*) from t").fetchone()[0], 1)
 
 
 if __name__ == "__main__":

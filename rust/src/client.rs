@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -89,27 +90,21 @@ impl Client {
         if claimed.status == "corrupt" {
             return Err(Error::RedisUnavailable("idempotency record is corrupt".into()));
         }
+        let rk = resource_key(document).unwrap_or_default();
+        let claim = ClaimLog {
+            agent_id: scope.agent_id.clone(),
+            scope_id: scope.scope_id.clone(),
+            operation_id: op_id.clone(),
+            resource_key: rk,
+            repo_wide,
+        };
         if claimed.status != "claimed" {
-            write_claim(
-                std::path::Path::new("."),
-                &scope.agent_id,
-                &scope.scope_id,
-                &op_id,
-                "replayed",
-                repo_wide,
-            );
+            claim.write("replayed");
             return self.follow_existing(&token, &claimed);
         }
         let record = claimed.record.ok_or_else(|| Error::RedisUnavailable("claim did not return a record".into()))?;
-        write_claim(
-            std::path::Path::new("."),
-            &scope.agent_id,
-            &scope.scope_id,
-            &op_id,
-            "sent",
-            repo_wide,
-        );
-        self.owned(&token, &record.owner, record.fence, document, run)
+        claim.write("sent");
+        self.owned(&token, &record.owner, record.fence, document, &claim, run)
     }
 
     pub fn resolve_blocked(
@@ -157,7 +152,7 @@ impl Client {
         Ok(result.cloned())
     }
 
-    fn owned<F>(&self, token: &str, owner: &str, fence: i64, document: &Value, run: F) -> Result<Value, Error>
+    fn owned<F>(&self, token: &str, owner: &str, fence: i64, document: &Value, claim: &ClaimLog, run: F) -> Result<Value, Error>
     where
         F: FnOnce() -> Result<Value, Error>,
     {
@@ -185,19 +180,19 @@ impl Client {
                 let contract = match contract_value(produced) {
                     Ok(value) => value,
                     Err(error) => {
-                        self.block(token, owner, fence, "nonserializable_result");
+                        self.block(token, owner, fence, "nonserializable_result", claim);
                         return Err(error);
                     }
                 };
                 let envelope = success_envelope(contract.clone());
                 if let Err(error) = self.check_size(&envelope) {
-                    self.block(token, owner, fence, "oversized_result");
+                    self.block(token, owner, fence, "oversized_result", claim);
                     return Err(error);
                 }
                 let stored = match encrypt(self.record_key.as_deref(), token, &envelope).and_then(|value| canonical_dumps(&value)) {
                     Ok(text) => text,
                     Err(_) => {
-                        self.block(token, owner, fence, "uncertain_exception");
+                        self.block(token, owner, fence, "uncertain_exception", claim);
                         return Err(Error::Blocked { reason: "uncertain_exception".into() });
                     }
                 };
@@ -225,20 +220,20 @@ impl Client {
                 Err(Error::Replay { code: "rolled_back".into(), message: message.chars().take(500).collect() })
             }
             Err(Error::Oversized) => {
-                self.block(token, owner, fence, "oversized_result");
+                self.block(token, owner, fence, "oversized_result", claim);
                 Err(Error::Oversized)
             }
             Err(Error::Nonserializable(message)) => {
-                self.block(token, owner, fence, "nonserializable_result");
+                self.block(token, owner, fence, "nonserializable_result", claim);
                 Err(Error::Nonserializable(message))
             }
             Err(Error::Uncertain(reason)) => {
-                self.block(token, owner, fence, &reason);
+                self.block(token, owner, fence, &reason, claim);
                 Err(Error::Blocked { reason })
             }
             Err(error @ (Error::Blocked { .. } | Error::Replay { .. } | Error::RedisUnavailable(_) | Error::StaleOwner)) => Err(error),
             Err(_) => {
-                self.block(token, owner, fence, "uncertain_exception");
+                self.block(token, owner, fence, "uncertain_exception", claim);
                 Err(Error::Blocked { reason: "uncertain_exception".into() })
             }
         }
@@ -285,10 +280,8 @@ impl Client {
         let Some(record) = record else {
             return Err(Error::Replay { code: "replay_undecodable".into(), message: "stored result is missing".into() });
         };
-        if !record.result.is_object() {
-            return Err(Error::Replay { code: "replay_undecodable".into(), message: "stored result is missing".into() });
-        }
-        let opened = decrypt(self.record_key.as_deref(), token, &record.result).map_err(|_| {
+        let stored = stored_object(&record.result)?;
+        let opened = decrypt(self.record_key.as_deref(), token, &stored).map_err(|_| {
             Error::Replay { code: "replay_undecodable".into(), message: "stored result cannot be opened".into() }
         })?;
         match opened.get("outcome").and_then(Value::as_str) {
@@ -303,11 +296,13 @@ impl Client {
         }
     }
 
-    fn block(&self, token: &str, owner: &str, fence: i64, reason: &str) {
+    fn block(&self, token: &str, owner: &str, fence: i64, reason: &str, claim: &ClaimLog) {
         let Ok(body) = canonical_dumps(&serde_json::json!({ "reason": reason })) else {
+            claim.write("blocked");
             return;
         };
         let _ = self.store_call("block", token, owner, fence, &body);
+        claim.write("blocked");
     }
 
     fn store_call(&self, op: &str, token: &str, owner: &str, fence: i64, body: &str) -> Result<crate::store::StoreResponse, Error> {
@@ -367,4 +362,45 @@ fn status_error(response: &crate::store::StoreResponse) -> Error {
 
 fn env_i64(name: &str, default: i64) -> i64 {
     std::env::var(name).ok().and_then(|value| value.parse().ok()).unwrap_or(default)
+}
+
+struct ClaimLog {
+    agent_id: String,
+    scope_id: String,
+    operation_id: String,
+    resource_key: String,
+    repo_wide: bool,
+}
+
+impl ClaimLog {
+    fn write(&self, outcome: &str) {
+        let root = crate::scope::find_repo(".").unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        write_claim(
+            &root,
+            &self.agent_id,
+            &self.scope_id,
+            &self.operation_id,
+            outcome,
+            self.repo_wide,
+            &self.resource_key,
+        );
+    }
+}
+
+fn stored_object(value: &Value) -> Result<Value, Error> {
+    let object = if let Some(text) = value.as_str() {
+        serde_json::from_str::<Value>(text).map_err(|_| Error::Replay {
+            code: "replay_undecodable".into(),
+            message: "stored result is missing".into(),
+        })?
+    } else {
+        value.clone()
+    };
+    if !object.is_object() {
+        return Err(Error::Replay {
+            code: "replay_undecodable".into(),
+            message: "stored result is missing".into(),
+        });
+    }
+    Ok(object)
 }

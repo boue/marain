@@ -114,7 +114,7 @@ Oversized recovery: a caller that still holds the current scope may `resolve_blo
 
 ## Redis record
 
-Key prefix `idempotency:v1:`. The value is a JSON object: `state`, `dispatched`, `scope_id`, `operation_id`, `owner`, `fence`, `lock_expires_at_ms`, `snapshot`, `result`, `reason`.
+Key prefix `idempotency:v1:`. The value is a JSON object: `state`, `dispatched`, `scope_id`, `operation_id`, `owner`, `fence`, `lock_expires_at_ms`, `snapshot`, `result`, `reason`. `snapshot` and `result` are canonical JSON text. Redis cjson would otherwise store an empty array as an object. A reader accepts that text, and also an object written by an older record.
 
 States are `empty` (no key), `in_progress`, `completed`, and `blocked`.
 
@@ -244,7 +244,7 @@ Each case names the observation that makes it pass:
 - An HTTP timeout blocks as `uncertain_http_outcome`.
 - A database rollback replays `rolled_back` and does not leave a committed row.
 - `call_unprotected` runs the side effect twice and appends two bypass lines.
-- Every claim writes a line to `.idempotency/claims.jsonl` with `agent_id`, `scope_id`, `operation_id`, `outcome`, `ts`, and `repo_wide`.
+- Every claim writes a line to `.idempotency/claims.jsonl` with `agent_id`, `scope_id`, `operation_id`, `resource_key`, `outcome` (`sent`, `replayed`, or `blocked`), `ts`, and `repo_wide`.
 - `resource_key` for HTTP is `method:host:path` with numeric segments replaced by `:id`.
 - `resource_key` for DB is `driver:database:sorted_tables` extracted by regex from the main statement.
 - `resource_key` for hooks is `hook:<name>`.

@@ -142,12 +142,13 @@ if op == 'resolve' then
     return encode('rejected', rec)
   end
   local ok, result = pcall(cjson.decode, payload.result_json)
-  if not ok then
+  if not ok or type(result) ~= 'table' then
     return encode('rejected', rec)
   end
   rec.state = 'completed'
   rec.reason = cjson.null
-  rec.result = result
+  -- Keep the canonical text. cjson turns an empty table into {}.
+  rec.result = payload.result_json
   rec.evidence = payload.evidence
   write_keep(rec)
   return encode('completed', rec)
@@ -175,7 +176,7 @@ if op == 'mark_dispatched' then
     if not payload then
       return encode('rejected', rec)
     end
-    rec.snapshot = payload
+    rec.snapshot = body
   end
   write_keep(rec)
   return encode('marked', rec)
@@ -229,7 +230,7 @@ if op == 'complete' then
   rec.state = 'completed'
   rec.reason = cjson.null
   rec.lock_expires_at_ms = cjson.null
-  rec.result = payload
+  rec.result = body
   write_keep(rec)
   return encode('completed', rec)
 end
